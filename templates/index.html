@@ -1,25 +1,174 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fake News Detector</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial}
+body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:15px}
+.card{background:white;max-width:520px;width:100%;border-radius:20px;padding:25px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+h1{text-align:center;margin-bottom:20px;color:#222;font-size:26px}
+.btn-row{display:flex;gap:10px;margin-bottom:15px}
+.btn{flex:1;padding:12px;border:none;border-radius:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;font-size:14px}
+.btn-gallery{background:#e3f2fd;color:#1976d2}
+.btn-camera{background:#f3e5f5;color:#7b1fa2}
+.preview{display:none;margin:12px 0;text-align:center;border:2px dashed #ddd;border-radius:12px;padding:10px}
+.preview img{max-width:100%;max-height:220px;border-radius:8px}
+textarea{width:100%;height:100px;padding:12px;border:2px solid #e0e0e0;border-radius:12px;resize:none;outline:none}
+textarea:focus{border-color:#667eea}
+.predict{width:100%;padding:14px;background:#111;color:white;border:none;border-radius:12px;font-size:16px;font-weight:800;margin-top:14px;cursor:pointer}
+.result{margin-top:18px;padding:18px;border-radius:12px;text-align:center}
+.result.real{background:#e8f5e9;color:#2e7d32;border:2px solid #4caf50}
+.result.fake{background:#ffebee;color:#c62828;border:2px solid #ef5350}
+/* Crop Modal */
+#cropModal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;padding:20px}
+#cropModal.show{display:flex}
+.crop-box{background:white;border-radius:15px;padding:15px;max-width:90%;max-height:90%;width:400px;display:flex;flex-direction:column}
+#cropImage{max-width:100%;max-height:50vh;display:block}
+.crop-btns{display:flex;gap:10px;margin-top:12px}
+.crop-btn{flex:1;padding:10px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
+.crop-cancel{background:#eee}
+.crop-done{background:#667eea;color:white}
+</style>
 </head>
-<body style="font-family:Arial;padding:20px;background:#f5f5f5">
-<div style="max-width:500px;margin:auto;background:white;padding:20px;border-radius:10px">
-<h2 style="text-align:center">Fake News Detector</h2>
-<form action="/predict" method="POST" enctype="multipart/form-data">
-<input type="file" name="news_image" accept="image/*" style="width:100%;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:5px">
-<textarea name="news_text" placeholder="Or paste text here" style="width:100%;height:80px;padding:10px;margin:10px 0"></textarea>
-<button type="submit" style="width:100%;padding:12px;background:black;color:white;border:none;border-radius:5px">Predict</button>
+<body>
+<div class="card">
+<h1>📰 Fake News Detector</h1>
+<form action="/predict" method="POST" enctype="multipart/form-data" id="mainForm">
+
+<div class="btn-row">
+<button type="button" class="btn btn-gallery" onclick="document.getElementById('fileInput').click()">📁 Gallery</button>
+<button type="button" class="btn btn-camera" onclick="document.getElementById('cameraInput').click()">📸 Camera</button>
+</div>
+
+<input type="file" id="fileInput" name="news_image" accept="image/*" style="display:none">
+<input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+
+<div class="preview" id="previewBox">
+<img id="previewImg" src="">
+<p id="fileName" style="font-size:12px;margin-top:6px;color:#555"></p>
+<button type="button" id="cropAgainBtn" style="margin-top:8px;padding:6px 12px;border:none;background:#667eea;color:white;border-radius:6px;display:none" onclick="openCropper()">✂️ Crop Again</button>
+</div>
+
+<textarea name="news_text" id="news_text" placeholder="Or paste news text here to check...">{{ input_text if input_text else '' }}</textarea>
+
+<button type="submit" class="predict">🔍 Check Real or Fake</button>
 </form>
+
 {% if prediction %}
-<div style="margin-top:20px;padding:15px;background:#e8f5e9;border-radius:8px;text-align:center">
-<h3>{{ prediction }}</h3>
-<p>{{ confidence }}</p>
-{% if input_text %}<small>{{ input_text }}</small>{% endif %}
+<div class="result {% if 'REAL' in prediction %}real{% else %}fake{% endif %}">
+<h2 style="font-size:22px">{{ prediction }}</h2>
+<p style="margin-top:6px;font-weight:600">{{ confidence }}</p>
+{% if input_text %}<p style="margin-top:10px;font-size:11px;opacity:0.7;word-break:break-word;background:rgba(0,0,0,0.05);padding:8px;border-radius:6px">{{ input_text[:350] }}</p>{% endif %}
 </div>
 {% endif %}
 </div>
+
+<!-- Crop Modal -->
+<div id="cropModal">
+<div class="crop-box">
+<h3 style="text-align:center;margin-bottom:10px">✂️ Crop Image</h3>
+<div style="overflow:hidden;max-height:50vh">
+<img id="cropImage" src="">
+</div>
+<div class="crop-btns">
+<button class="crop-btn crop-cancel" onclick="closeCropper()">Cancel</button>
+<button class="crop-btn crop-done" onclick="doCrop()">Crop & Use</button>
+</div>
+</div>
+</div>
+
+<script>
+let cropper = null;
+let originalFile = null;
+
+const fileInput = document.getElementById('fileInput');
+const cameraInput = document.getElementById('cameraInput');
+const previewBox = document.getElementById('previewBox');
+const previewImg = document.getElementById('previewImg');
+const fileName = document.getElementById('fileName');
+const cropModal = document.getElementById('cropModal');
+const cropImage = document.getElementById('cropImage');
+const cropAgainBtn = document.getElementById('cropAgainBtn');
+
+// Gallery -> No crop, direct preview
+fileInput.addEventListener('change', function(){
+  if(this.files && this.files[0]){
+    showImagePreview(this.files[0], false);
+  }
+});
+
+// Camera -> Open crop modal
+cameraInput.addEventListener('change', function(){
+  if(this.files && this.files[0]){
+    originalFile = this.files[0];
+    openCropperWithFile(originalFile);
+  }
+});
+
+function showImagePreview(file, showCropBtn){
+  const reader = new FileReader();
+  reader.onload = e=>{
+    previewImg.src = e.target.result;
+    previewBox.style.display='block';
+    fileName.innerText = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+    cropAgainBtn.style.display = showCropBtn? 'inline-block' : 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+function openCropperWithFile(file){
+  const reader = new FileReader();
+  reader.onload = e=>{
+    cropImage.src = e.target.result;
+    cropModal.classList.add('show');
+    setTimeout(()=>{
+      if(cropper) cropper.destroy();
+      cropper = new Cropper(cropImage, {
+        aspectRatio: NaN,
+        viewMode:1,
+        autoCropArea:0.8
+      });
+    },100);
+  };
+  reader.readAsDataURL(file);
+}
+
+function openCropper(){
+  if(previewImg.src){
+    fetch(previewImg.src).then(r=>r.blob()).then(blob=>{
+      const file = new File([blob], "image.jpg", {type:"image/jpeg"});
+      openCropperWithFile(file);
+    });
+  }
+}
+
+function closeCropper(){
+  cropModal.classList.remove('show');
+  if(cropper){ cropper.destroy(); cropper=null; }
+  cameraInput.value='';
+}
+
+function doCrop(){
+  if(!cropper) return;
+  const canvas = cropper.getCroppedCanvas({width:800, maxWidth:1000});
+  canvas.toBlob(blob=>{
+    const croppedFile = new File([blob], "cropped_news.jpg", {type:"image/jpeg", lastModified:Date.now()});
+    // Put cropped file into main fileInput (news_image)
+    const dt = new DataTransfer();
+    dt.items.add(croppedFile);
+    fileInput.files = dt.files;
+    // Preview
+    previewImg.src = canvas.toDataURL('image/jpeg');
+    previewBox.style.display='block';
+    fileName.innerText = 'Cropped: ' + (blob.size/1024).toFixed(1) + ' KB - Ready to predict';
+    cropAgainBtn.style.display='inline-block';
+    closeCropper();
+  }, 'image/jpeg', 0.9);
+}
+</script>
 </body>
 </html>
