@@ -53,7 +53,7 @@ def predict():
 
 
     # Get probability
-    probabilities = model.predict_proba(news_vector)[0]
+    prediction = model.predict_proba(news_vector)[0]
 
     confidence = max(probabilities) * 100
 
