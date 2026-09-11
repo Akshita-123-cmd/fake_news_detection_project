@@ -5,17 +5,18 @@ import pytesseract
 import os
 
 app = Flask(__name__)
+import platform
+import shutil
 
-# AUTO detect - Windows vs Render (Linux)
-if os.path.exists('/usr/bin/tesseract'):
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-    print("Running on Render - Linux Tesseract")
-else:
+# SMART FIX - Only set path on Windows laptop
+# On Render (Linux), DON'T set any path, let it auto-find
+if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    print(f"Running on Windows - {pytesseract.pytesseract.tesseract_cmd}")
+    print("Running on Windows")
+else:
+    print("Running on Render Linux - using system tesseract")
 
-print(f"Tesseract exists: {os.path.exists(pytesseract.pytesseract.tesseract_cmd)}")
-
+print(f"Tesseract found in PATH: {shutil.which('tesseract')}")
 model = pickle.load(open('model.pkl', 'rb'))
 vectorizer = pickle.load(open('vectorizer.pkl', 'rb'))
 print("Model loaded!")
