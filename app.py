@@ -6,15 +6,19 @@ import os
 
 app = Flask(__name__)
 
-# Load model
-try:
-    model = pickle.load(open('model.pkl', 'rb'))
-    vectorizer = pickle.load(open('vectorizer.pkl', 'rb'))
-    print("Model loaded!")
-except:
-    model = None
-    vectorizer = None
-    print("Model not found - using dummy")
+# AUTO detect - Windows vs Render (Linux)
+if os.path.exists('/usr/bin/tesseract'):
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+    print("Running on Render - Linux Tesseract")
+else:
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    print(f"Running on Windows - {pytesseract.pytesseract.tesseract_cmd}")
+
+print(f"Tesseract exists: {os.path.exists(pytesseract.pytesseract.tesseract_cmd)}")
+
+model = pickle.load(open('model.pkl', 'rb'))
+vectorizer = pickle.load(open('vectorizer.pkl', 'rb'))
+print("Model loaded!")
 
 @app.route('/')
 def home():
@@ -22,49 +26,36 @@ def home():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    text = ""
+    text_from_image = ""
+    manual_text = request.form.get('news','')
 
-    # 1. Check if image uploaded
     if 'news_image' in request.files:
         file = request.files['news_image']
         if file and file.filename!= '':
             try:
                 img = Image.open(file.stream)
-                # OCR - extract text from image
-                text = pytesseract.image_to_string(img)
-                print(f"OCR Text: {text}")
+                # Fix for mobile large images
+                img = img.convert('RGB')
+                # Resize if too big (mobile camera images are huge)
+                max_size = 2000
+                if max(img.size) > max_size:
+                    img.thumbnail((max_size, max_size))
+                text_from_image = pytesseract.image_to_string(img)
+                print(f"MOBILE OCR SUCCESS: {text_from_image[:100]}")
             except Exception as e:
-                print(f"OCR Error: {e}")
-                text = ""
+                print(f"MOBILE OCR FAIL: {e}")
+                return render_template('index.html', prediction=f"❌ Image read failed on server: {e}", color="red", news=manual_text, text_extracted=str(e))
 
-    # 2. If no image text, take textarea text
-    if not text or len(text.strip()) < 5:
-        text = request.form.get('news', '')
+    final_text = text_from_image if len(text_from_image.strip()) > 3 else manual_text
 
-    if not text or len(text.strip()) < 5:
-        return render_template('index.html', prediction="Please enter text or upload a clear image!", news=text, text_extracted="")
+    if not final_text.strip():
+        return render_template('index.html', prediction="❌ Please upload clearer image with bigger text!", color="red", news=manual_text, text_extracted=f"OCR empty. Got: '{text_from_image}'")
 
-    # 3. Predict
-    try:
-        if model and vectorizer:
-            vec = vectorizer.transform([text])
-            pred = model.predict(vec)[0]
-            # model: 0 = Fake, 1 = Real (change if opposite)
-            if pred == 1:
-                result = "✅ REAL NEWS"
-                color = "green"
-            else:
-                result = "❌ FAKE NEWS"
-                color = "red"
-        else:
-            # fallback
-            result = "✅ REAL NEWS (Demo Mode - Model not loaded)"
-            color = "green"
-
-        return render_template('index.html', prediction=result, color=color, news=request.form.get('news',''), text_extracted=text[:300])
-
-    except Exception as e:
-        return render_template('index.html', prediction=f"Error: {e}", news=text)
+    vec = vectorizer.transform([final_text])
+    pred = model.predict(vec)[0]
+    result = "✅ REAL NEWS" if pred == 1 else "❌ FAKE NEWS"
+    color = "green" if pred == 1 else "red"
+    return render_template('index.html', prediction=result, color=color, news=manual_text, text_extracted=final_text[:400])
 
 if __name__ == '__main__':
     app.run(debug=True)
