@@ -153,10 +153,15 @@ def check():
 
     # STEP 2: HARD RULES FOR FAKE PATTERNS
     must_be_fake = [
-        "free smartphone", "free laptop", "share to 10", "forward this message",
-        "you have won", "lottery", "moon will disappear", "sun will not rise",
-        "earth will be dark", "cures cancer in 24", "prevents covid",
-        "5g causes", "microchip", "drink bleach"
+    
+        "free smartphone", "brand new smartphone", "free of charge", "completely free",
+        "aadhaar number and bank", "aadhaar and bank", "bank details through whatsapp",
+        "send their aadhaar", "claim the phone", "every citizen will receive",
+        "free laptop", "share to 10", "forward this message",
+        "you have won", "you won", "lottery", "kbc",
+        "moon will disappear", "sun will not rise",
+        "earth will be dark", "cures cancer in 24", "prevents covid", "cures corona",
+        "5g causes", "microchip", "drink bleach", "free recharge", "free money"
     ]
     if any(k in lower for k in must_be_fake):
         return jsonify({
