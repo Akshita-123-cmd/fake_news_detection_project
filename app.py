@@ -1,136 +1,89 @@
 import os
-import pickle
+import re
 import shutil
-from flask import Flask, request, render_template
+from flask import Flask, render_template, request, jsonify
 from PIL import Image
 import pytesseract
 
 app = Flask(__name__)
 
-# --- Load Model and Vectorizer ---
-model = None
-vectorizer = None
+# Auto find tesseract path for Render Docker
+tess_path = shutil.which("tesseract") or "/usr/bin/tesseract"
+pytesseract.pytesseract.tesseract_cmd = tess_path
 
-try:
-    with open('model.pkl', 'rb') as f:
-        model = pickle.load(f)
-    print("Model loaded: True")
-except Exception as e:
-    print(f"Model load failed: {e}")
+def detect_fake_news(text):
+    text = text.strip()
+    if len(text) < 10:
+        return "REAL", 50, "Text too short"
 
-try:
-    with open('vectorizer.pkl', 'rb') as f:
-        vectorizer = pickle.load(f)
-    print("Vectorizer loaded: True")
-except Exception as e:
-    print(f"Vectorizer load failed: {e}")
+    text_lower = text.lower()
+    fake_keywords = ['shocking', 'you wont believe', '100% true', 'viral', 'breaking', 'urgent', 'must share', 'miracle', 'secret revealed', 'govt hiding']
+    fake_score = 0
+    reasons = []
 
-# --- FIXED: Auto-find tesseract path (works on Render + Local) ---
-try:
-    tess_path = shutil.which("tesseract")
-    if tess_path:
-        pytesseract.pytesseract.tesseract_cmd = tess_path
-        print(f"Tesseract found at: {tess_path}")
+    # Heuristic scoring
+    if sum(1 for c in text if c.isupper()) / max(len(text),1) > 0.3:
+        fake_score += 20
+        reasons.append("Too many CAPS")
+    if text.count('!') > 2 or text.count('?') > 3:
+        fake_score += 20
+        reasons.append("Too many!?")
+    for kw in fake_keywords:
+        if kw in text_lower:
+            fake_score += 15
+
+    # Numbers / clickbait check
+    if re.search(r'\b\d{2,}\s*crore|\b\d{2,}\s*lakh', text_lower):
+        if 'official' not in text_lower and 'source' not in text_lower:
+            fake_score += 15
+
+    if fake_score >= 40:
+        confidence = min(95, 60 + fake_score)
+        return "FAKE", confidence, ", ".join(reasons) if reasons else "Sensational language"
     else:
-        # Try common Render paths
-        for p in ["/usr/bin/tesseract", "/usr/local/bin/tesseract"]:
-            if os.path.exists(p):
-                pytesseract.pytesseract.tesseract_cmd = p
-                print(f"Tesseract found at: {p}")
-                break
-        else:
-            print("Tesseract not found in PATH, will try default")
-except Exception as e:
-    print(f"Tesseract path setup error: {e}")
-
-def clean_text(text):
-    if not text:
-        return ""
-    return text.lower().strip()
+        confidence = min(95, 85 - fake_score)
+        return "REAL", confidence, "Looks authentic"
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
-@app.route('/predict', methods=['POST'])
-def predict():
+@app.route('/check', methods=['POST'])
+def check():
     try:
-        text = ""
+        text_input = request.form.get('news_text', '').strip()
+        image_text = ""
 
-        # 1. Get text from form
-        if request.form:
-            text = request.form.get('news_text', '') or request.form.get('text', '') or ""
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename!= '':
+                img = Image.open(file.stream)
+                # Improve OCR
+                img = img.convert('L') # grayscale
+                image_text = pytesseract.image_to_string(img, lang='eng')
 
-        # 2. Get image - Check news_image FIRST (your HTML sends this)
-        file_obj = None
-        for field_name in ['news_image', 'file', 'image']:
-            if field_name in request.files:
-                f = request.files[field_name]
-                if f and f.filename!= '':
-                    file_obj = f
-                    print(f"Found file in: {field_name} -> {f.filename}")
-                    break
+        final_text = text_input if text_input else image_text
 
-        # 3. OCR if image found
-        if file_obj:
-            try:
-                img = Image.open(file_obj.stream)
-                if img.mode!= 'RGB':
-                    img = img.convert('RGB')
-                ocr_text = pytesseract.image_to_string(img)
-                print(f"OCR Text: {ocr_text[:150]}")
-                if ocr_text.strip():
-                    text = ocr_text + " " + text
-            except Exception as e:
-                print(f"OCR Error: {e}")
-                # Don't fail, try to continue - if text was also typed
-                if not text.strip():
-                    return render_template('index.html',
-                        prediction="Could not read text from image",
-                        confidence=f"OCR Error: {str(e)[:100]}. Try clearer image or type text.")
+        if not final_text.strip():
+            return jsonify({'status': 'error', 'message': 'Could not read text from image. Try clearer image or type text.'})
 
-        text = text.strip()
-        print(f"Final text: {text[:150]}")
+        label, conf, reason = detect_fake_news(final_text)
 
-        if not text:
-            return render_template('index.html',
-                prediction="Please enter text or upload an image with clear text",
-                confidence="No text found")
-
-        # 4. Predict
-        if not model or not vectorizer:
-            return render_template('index.html',
-                prediction="Model not loaded",
-                confidence="Check model.pkl and vectorizer.pkl exist")
-
-        cleaned = clean_text(text)
-        vector = vectorizer.transform([cleaned])
-        pred = model.predict(vector)[0]
-
-        try:
-            proba = model.predict_proba(vector).max() * 100
-        except:
-            proba = 85.0
-
-        # Handle all label types
-        if str(pred) == '1' or str(pred).lower() in ['real', 'true'] or pred == 1:
-            result = "REAL NEWS ✅"
-        else:
-            result = "FAKE NEWS ❌"
-
-        return render_template('index.html',
-            prediction=result,
-            confidence=f"Confidence: {proba:.1f}%",
-            input_text=text[:400])
+        return jsonify({
+            'status': 'success',
+            'label': label,
+            'confidence': conf,
+            'reason': reason,
+            'extracted_text': final_text[:500]
+        })
 
     except Exception as e:
-        print(f"Predict error: {e}")
-        import traceback
-        traceback.print_exc()
-        return render_template('index.html',
-            prediction=f"Error: {str(e)}",
-            confidence="Check Render logs")
+        # Handle tesseract not installed error gracefully
+        err = str(e).lower()
+        if 'tesseract' in err:
+            return jsonify({'status': 'error', 'message': f"OCR Error: {str(e)}. Try clearer image or type text."})
+        return jsonify({'status': 'error', 'message': f"Error: {str(e)}"})
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
