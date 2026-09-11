@@ -52,17 +52,13 @@ def predict():
     prediction = model.predict(news_vector)[0]
 
 
-    # Get probability
-    prediction = model.predict_proba(news_vector)[0]
-
-    confidence = max(probabilities) * 100
-
+   
 
     # Send result to website
     return render_template(
         "index.html",
         prediction=prediction,
-        confidence=round(confidence, 2),
+        
         news=news_text
     )
 
