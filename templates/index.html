@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Fake News Detector</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+
+
+<body>
+
+    <div class="container">
+
+        <div class="header">
+
+            <h1>📰 Fake News Detector</h1>
+
+            <p>
+                AI & Machine Learning Based News Verification
+            </p>
+
+        </div>
+
+
+        <div class="card">
+
+            <h2>Check Your News</h2>
+
+            <form action="/predict" method="POST">
+
+                <textarea
+                    name="news"
+                    placeholder="Enter news article or headline here..."
+                    required>{{ news if news else '' }}</textarea>
+
+
+                <button type="submit">
+                    🔍 Detect News
+                </button>
+
+            </form>
+
+
+            {% if prediction %}
+
+            <div class="result">
+
+                <h2>Detection Result</h2>
+
+
+                {% if prediction == "FAKE" %}
+
+                    <div class="fake">
+                        ❌ FAKE NEWS
+                    </div>
+
+                {% else %}
+
+                    <div class="real">
+                        ✅ REAL NEWS
+                    </div>
+
+                {% endif %}
+
+
+                <p>
+                    Confidence:
+                    <strong>{{ confidence }}%</strong>
+                </p>
+
+            </div>
+
+            {% endif %}
+
+        </div>
+
+
+        <div class="info">
+
+            <h3>How does it work?</h3>
+
+            <div class="steps">
+
+                <div>
+                    <b>1️⃣</b>
+                    <p>Enter news</p>
+                </div>
+
+                <div>
+                    <b>2️⃣</b>
+                    <p>TF-IDF converts text</p>
+                </div>
+
+                <div>
+                    <b>3️⃣</b>
+                    <p>ML model analyzes it</p>
+                </div>
+
+                <div>
+                    <b>4️⃣</b>
+                    <p>Get prediction</p>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <footer>
+
+            <p>
+                Fake News Detection using AI & ML
+            </p>
+
+        </footer>
+
+    </div>
+
+</body>
+
+</html>
