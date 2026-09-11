@@ -35,12 +35,15 @@
 
             <h2>Check Your News</h2>
 
-            <form action="/predict" method="POST">
+            <form action="/predict" method="POST" enctype="multipart/form-data">
+                <input type="file" name="news_image" accept="image/*">
+                <p style="text-align:center;">OR paste text below</p>
 
+    
                 <textarea
                     name="news"
                     placeholder="Enter news article or headline here..."
-                    required>{{ news if news else '' }}</textarea>
+                    >{{ news if news else '' }}</textarea>
 
 
                 <button type="submit">
