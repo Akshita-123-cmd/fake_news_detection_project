@@ -42,11 +42,16 @@ def predict():
         text = ""
 
         # --- Check if image uploaded - FIXED to accept 'file' AND 'image' ---
+        # --- FIXED to accept news_image, file, image ---
+        # --- FIXED to accept news_image, file, image ---
         file = None
-        if 'file' in request.files and request.files['file'].filename!= '':
+        if 'news_image' in request.files and request.files['news_image'].filename != '':
+            file = request.files['news_image']
+        elif 'file' in request.files and request.files['file'].filename != '':
             file = request.files['file']
-        elif 'image' in request.files and request.files['image'].filename!= '':
+        elif 'image' in request.files and request.files['image'].filename != '':
             file = request.files['image']
+
 
         if file:
             try:
