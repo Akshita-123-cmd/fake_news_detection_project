@@ -1,96 +1,70 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fake News Detector</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
-    <style>
-        body{font-family:Arial; background:#f0f2f5; display:flex; justify-content:center; padding:20px;}
-       .card{background:white; padding:20px; border-radius:15px; max-width:500px; width:100%; box-shadow:0 4px 10px rgba(0,0,0,0.1);}
-        textarea{width:100%; height:80px; margin-top:10px; padding:10px; border-radius:8px; border:1px solid #ccc;}
-        button{cursor:pointer;}
-    </style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:Arial; background:#f0f2f5; margin:0; padding:20px;}
+.container{max-width:500px; margin:auto;}
+.card{background:white; padding:20px; border-radius:15px; box-shadow:0 2px 10px rgba(0,0,0,0.1);}
+button{cursor:pointer;}
+</style>
 </head>
 <body>
 <div class="container">
-    <div class="card">
-        <h2 style="text-align:center;">🔍 Fake News Detector</h2>
-        <form action="/predict" method="POST" enctype="multipart/form-data">
-            <input type="file" name="news_image" accept="image/*" id="fileInput" style="width:100%; margin-bottom:10px;">
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <button type="button" onclick="document.getElementById('fileInput').click()" style="flex:1; padding:10px; background:#4CAF50; color:white; border:none; border-radius:5px;">📁 Gallery</button>
-            <button type="button" onclick="openCamera()" style="flex:1; padding:10px; background:#2196F3; color:white; border:none; border-radius:5px;">📷 Camera</button>
-    </div>
-            <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="handleCameraFile(this)">
+ <div class="card">
+  <h2 style="text-align:center;">🔍 Fake News Detector</h2>
+  <form action="/predict" method="POST" enctype="multipart/form-data">
+   <!-- GALLERY INPUT - NO capture attribute! -->
+   <input type="file" name="news_image" accept="image/*" id="fileInput" style="width:100%; margin-bottom:10px;" onchange="handleFile(this.files[0])">
 
-            <div id="cameraBox" style="display:none; margin-bottom:10px; text-align:center;">
-                <video id="video" autoplay playsinline style="width:100%; border-radius:10px; background:black;"></video>
-                <button type="button" onclick="takePhoto()" style="margin-top:8px; width:100%; padding:12px; background:#FF5722; color:white; border:none; border-radius:8px;">📸 Capture</button>
-                <button type="button" onclick="closeCamera()" style="margin-top:5px; width:100%; padding:8px; background:#888; color:white; border:none; border-radius:8px;">Close Camera</button>
-            </div>
+   <div style="display:flex; gap:10px; margin-bottom:10px;">
+     <button type="button" onclick="document.getElementById('fileInput').click()" style="flex:1; padding:12px; background:#4CAF50; color:white; border:none; border-radius:8px;">📁 Gallery</button>
+     <button type="button" onclick="openCamera()" style="flex:1; padding:12px; background:#2196F3; color:white; border:none; border-radius:8px;">📷 Camera</button>
+   </div>
 
-            <div id="cropBox" style="display:none; margin-bottom:15px;">
-                <p style="font-weight:bold; font-size:13px;">✂️ Crop only the news text:</p>
-                <img id="cropImage" style="max-width:100%; display:block;">
-                <div style="display:flex; gap:10px; margin-top:10px;">
-                    <button type="button" onclick="doCrop()" style="flex:1; padding:12px; background:#4CAF50; color:white; border:none; border-radius:8px;">✅ Use Cropped</button>
-                    <button type="button" onclick="cancelCrop()" style="flex:1; padding:12px; background:#aaa; color:white; border:none; border-radius:8px;">Retake</button>
-                </div>
-            </div>
+   <!-- CAMERA INPUT - hidden, with capture -->
+   <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="handleFile(this.files[0])">
 
-            <p id="file-name" style="text-align:center; color:green; font-weight:bold; font-size:13px;"></p>
-            <p style="text-align:center; margin:5px 0;">OR</p>
-            <textarea name="news" placeholder="Paste news headline here...">{{ news if news else '' }}</textarea>
-            <button type="submit" style="width:100%; padding:14px; background:black; color:white; border:none; border-radius:8px; margin-top:15px; font-weight:bold;">Detect News</button>
-        </form>
+   <textarea name="news_text" placeholder="Or paste news text here..." style="width:100%; height:100px; margin-bottom:10px; padding:10px; border-radius:8px;"></textarea>
 
-        {% if prediction %}
-        <div style="margin-top:20px; padding:15px; border-radius:10px; background:{% if color=='green' %}#d4edda{% else %}#f8d7da{% endif %}; text-align:center; border:2px solid {{ color }};">
-            <h2 style="color:{{ color }}; margin:0;">{{ prediction }}</h2>
-            {% if text_extracted %}
-            <p style="font-size:12px; margin-top:10px; color:#333; background:white; padding:8px; border-radius:5px;"><b>Extracted:</b> {{ text_extracted }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
-    </div>
+   <button type="submit" style="width:100%; padding:12px; background:#000; color:white; border:none; border-radius:8px; font-size:16px;">Predict</button>
+  </form>
+
+  <div id="cameraBox" style="display:none; margin-top:15px; text-align:center;">
+   <video id="video" autoplay playsinline style="width:100%; border-radius:10px; background:black;"></video>
+   <button type="button" onclick="takePhoto()" style="margin-top:8px; width:100%; padding:10px; background:#4CAF50; color:white; border:none; border-radius:5px;">Capture</button>
+   <button type="button" onclick="closeCamera()" style="margin-top:5px; width:100%; padding:8px; background:#f44336; color:white; border:none; border-radius:5px;">Close</button>
+  </div>
+
+  <div id="cropBox" style="display:none; margin-top:15px; text-align:center;">
+   <img id="cropImage" style="max-width:100%; border-radius:10px;">
+  </div>
+
+ </div>
 </div>
 
 <script>
-let stream, cropper;
+let stream;
 function openCamera(){
-  document.getElementById('cameraBox').style.display='block';
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:"environment"}}, audio:false})
- .then(s=>{stream=s; document.getElementById('video').srcObject=s;})
- .catch(()=>{ // try front camera if back fails
-    navigator.mediaDevices.getUserMedia({video:true}).then(s=>{stream=s; document.getElementById('video').srcObject=s;})
-   .catch(e=>alert("Camera blocked. Please allow camera or use Gallery. "+e));
-  });
+ document.getElementById('cameraBox').style.display='block';
+ navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:"environment"}}, audio:false})
+.then(s=>{stream=s; document.getElementById('video').srcObject=s;})
+.catch(()=>{ // try front camera if back fails
+  navigator.mediaDevices.getUserMedia({video:true}).then(s=>{stream=s; document.getElementById('video').srcObject=s;})
+ .catch(e=>alert("Camera blocked. Please allow camera or use Gallery. "+e));
+ });
 }
 function closeCamera(){ if(stream) stream.getTracks().forEach(t=>t.stop()); document.getElementById('cameraBox').style.display='none'; }
 function takePhoto(){
-  let v=document.getElementById('video'); let c=document.createElement('canvas');
-  c.width=v.videoWidth; c.height=v.videoHeight; c.getContext('2d').drawImage(v,0,0);
-  closeCamera(); loadToCropper(c.toDataURL('image/jpeg'));
+ let v=document.getElementById('video'); let c=document.createElement('canvas');
+ c.width=v.videoWidth; c.height=v.videoHeight; c.getContext('2d').drawImage(v,0,0);
+ closeCamera(); loadToCropper(c.toDataURL('image/jpeg'));
 }
 function handleFile(f){ if(!f) return; let r=new FileReader(); r.onload=e=>loadToCropper(e.target.result); r.readAsDataURL(f); }
 function loadToCropper(src){
-  document.getElementById('cropBox').style.display='block';
-  let img=document.getElementById('cropImage'); img.src=src;
-  if(cropper) cropper.destroy();
-  setTimeout(()=>{ cropper=new Cropper(img,{viewMode:1, autoCropArea:0.9}); },150);
+ document.getElementById('cropBox').style.display='block';
+ document.getElementById('cropImage').src=src;
 }
-function doCrop(){
-  cropper.getCroppedCanvas().toBlob(b=>{
-    let file=new File([b],"crop.jpg",{type:"image/jpeg"});
-    let dt=new DataTransfer(); dt.items.add(file);
-    document.getElementById('fileInput').files=dt.files;
-    document.getElementById('file-name').innerText="✅ Cropped! Ready to Detect";
-    document.getElementById('cropBox').style.display='none';
-  },'image/jpeg',0.9);
-}
-function cancelCrop(){ document.getElementById('cropBox').style.display='none'; if(cropper) cropper.destroy(); }
 </script>
 </body>
 </html>
