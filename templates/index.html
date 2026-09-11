@@ -1,51 +1,181 @@
 <!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fake News Detector</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 <style>
 body{font-family:Arial;background:#e0e7ff;padding:15px;display:flex;justify-content:center}
-.card{background:white;padding:20px;border-radius:20px;max-width:420px;width:100%}
-textarea{width:100%;height:90px;border-radius:10px;padding:10px}
-#preview{width:100%;display:none;margin:10px 0;border-radius:10px}
-.extracted{background:#1e293b;color:white;padding:12px;border-radius:10px;margin:10px 0;display:none}
+.card{background:white;padding:20px;border-radius:20px;max-width:430px;width:100%;box-shadow:0 4px 15px rgba(0,0,0,0.1)}
+textarea{width:100%;height:90px;border-radius:10px;padding:10px;border:1px solid #ccc;box-sizing:border-box}
+#previewWrap{margin:10px 0; max-height:400px; overflow:hidden;}
+#preview{max-width:100%;display:none}
+.extracted{background:#1e293b;color:white;padding:12px;border-radius:10px;margin:10px 0;display:none;font-size:13px;max-height:120px;overflow:auto}
 #result{padding:15px;border-radius:12px;display:none;text-align:center;margin-top:10px}
-.result.fake{background:#ffe4e6;border:1px solid #ff4d6d}
-.result.real{background:#dcfce7;border:1px solid #22c55e}
+.result.fake{background:#ffe4e6;border:1px solid #ff4d6d;color:#9f1239}
+.result.real{background:#dcfce7;border:1px solid #22c55e;color:#14532d}
 button{width:100%;padding:12px;border:none;border-radius:12px;margin-top:8px;font-weight:bold;cursor:pointer}
-</style></head><body>
+#cropBtn{display:none;background:#22c55e;color:white}
+#recropBtn{display:none;background:#facc15;color:black}
+</style>
+</head>
+<body>
 <div class="card">
 <h2 style="text-align:center">📰 Fake News Detector</h2>
+
 <button onclick="document.getElementById('imageInput').click()" style="background:#c7e8ff">📁 Gallery</button>
 <button onclick="document.getElementById('cameraInput').click()" style="background:#e8d7ff">📷 Camera</button>
-<textarea id="news_text" placeholder="Type news here..."></textarea>
+
+<textarea id="news_text" placeholder="Type news here or upload image"></textarea>
+
 <input type="file" id="imageInput" accept="image/*" hidden>
 <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
-<img id="preview">
+
+<div id="previewWrap"><img id="preview"></div>
+
+<button id="cropBtn" onclick="doCrop()">✂️ Crop & Use This Part</button>
+<button id="recropBtn" onclick="enableRecrop()">↩️ Crop Again</button>
+
 <div id="extractedBox" class="extracted"></div>
+
 <button onclick="checkNews()" style="background:#0f172a;color:white">🔍 Check Real or Fake</button>
 <button onclick="clearAll()" style="background:#f1f5f9">🔄 Clear All - New Check</button>
+
 <div id="result"></div>
+<p style="text-align:center;font-size:11px;color:#64748b;margin-top:10px">Tip: After selecting, drag corners to crop only text area</p>
 </div>
+
 <script>
-const textArea=document.getElementById('news_text');
-const imageInput=document.getElementById('imageInput');
-const cameraInput=document.getElementById('cameraInput');
-const preview=document.getElementById('preview');
-const extractedBox=document.getElementById('extractedBox');
-const resultDiv=document.getElementById('result');
-function clearAll(){textArea.value='';imageInput.value='';cameraInput.value='';preview.src='';preview.style.display='none';extractedBox.style.display='none';extractedBox.innerText='';resultDiv.style.display='none';resultDiv.innerHTML='';}
-textArea.addEventListener('input',()=>{if(textArea.value.trim().length>0){imageInput.value='';cameraInput.value='';preview.style.display='none';extractedBox.style.display='none';resultDiv.style.display='none';}});
-imageInput.addEventListener('change',()=>{if(imageInput.files[0]){textArea.value='';resultDiv.style.display='none';preview.src=URL.createObjectURL(imageInput.files[0]);preview.style.display='block';}});
-cameraInput.addEventListener('change',()=>{if(cameraInput.files[0]){textArea.value='';resultDiv.style.display='none';preview.src=URL.createObjectURL(cameraInput.files[0]);preview.style.display='block';}});
-async function checkNews(){
- const fd=new FormData(); fd.append('news_text',textArea.value);
- if(imageInput.files[0])fd.append('image',imageInput.files[0]); else if(cameraInput.files[0])fd.append('image',cameraInput.files[0]);
- if(!textArea.value&&!imageInput.files[0]&&!cameraInput.files[0]){alert('Type or upload first!');return;}
- resultDiv.style.display='block'; resultDiv.innerHTML='Checking...';
- try{ const r=await fetch('/check',{method:'POST',body:fd}); const d=await r.json();
- if(d.status==='error'){resultDiv.className='result fake';resultDiv.innerHTML=d.message;return;}
- if(d.extracted_text && (imageInput.files[0]||cameraInput.files[0])){extractedBox.style.display='block';extractedBox.innerText=d.extracted_text;}else{extractedBox.style.display='none';}
- if(d.label==='FAKE'){resultDiv.className='result fake';resultDiv.innerHTML=`<h2 style="margin:0">❌ FAKE NEWS</h2><p>Confidence: ${d.confidence}%<br><small>${d.reason}</small></p>`;}
- else{resultDiv.className='result real';resultDiv.innerHTML=`<h2 style="margin:0">✅ REAL NEWS</h2><p>Confidence: ${d.confidence}%<br><small>${d.reason}</small></p>`;}
- }catch(e){resultDiv.className='result fake';resultDiv.innerHTML='Server error. Try again.';}
+let cropper = null;
+let croppedFile = null;
+let originalFile = null;
+
+const textArea = document.getElementById('news_text');
+const imageInput = document.getElementById('imageInput');
+const cameraInput = document.getElementById('cameraInput');
+const preview = document.getElementById('preview');
+const cropBtn = document.getElementById('cropBtn');
+const recropBtn = document.getElementById('recropBtn');
+const extractedBox = document.getElementById('extractedBox');
+const resultDiv = document.getElementById('result');
+
+function clearAll(){
+  textArea.value=''; imageInput.value=''; cameraInput.value='';
+  if(cropper){cropper.destroy(); cropper=null;}
+  preview.src=''; preview.style.display='none';
+  cropBtn.style.display='none'; recropBtn.style.display='none';
+  extractedBox.style.display='none'; extractedBox.innerText='';
+  resultDiv.style.display='none'; resultDiv.innerHTML='';
+  croppedFile=null; originalFile=null;
 }
-</script></body></html>
+
+// When typing -> clear image
+textArea.addEventListener('input', ()=>{
+  if(textArea.value.trim()){
+    if(cropper){cropper.destroy(); cropper=null;}
+    imageInput.value=''; cameraInput.value='';
+    preview.style.display='none'; cropBtn.style.display='none'; recropBtn.style.display='none';
+    extractedBox.style.display='none'; resultDiv.style.display='none';
+    croppedFile=null; originalFile=null;
+  }
+});
+
+function startCropper(file){
+  originalFile = file;
+  croppedFile = null;
+  if(cropper){cropper.destroy();}
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  preview.style.display='block';
+  cropBtn.style.display='block';
+  recropBtn.style.display='none';
+  extractedBox.style.display='none';
+  resultDiv.style.display='none';
+  preview.onload = ()=>{
+    cropper = new Cropper(preview, {
+      viewMode:1,
+      dragMode:'move',
+      autoCropArea:0.85,
+      movable:true,
+      zoomable:true,
+      rotatable:false,
+      responsive:true
+    });
+  };
+}
+
+imageInput.addEventListener('change', ()=>{
+  if(imageInput.files[0]){
+    textArea.value='';
+    startCropper(imageInput.files[0]);
+  }
+});
+cameraInput.addEventListener('change', ()=>{
+  if(cameraInput.files[0]){
+    textArea.value='';
+    startCropper(cameraInput.files[0]);
+  }
+});
+
+function doCrop(){
+  if(!cropper) return;
+  cropper.getCroppedCanvas({maxWidth:2000}).toBlob((blob)=>{
+    croppedFile = new File([blob], "cropped.jpg", {type:"image/jpeg"});
+    const url = URL.createObjectURL(blob);
+    cropper.destroy(); cropper=null;
+    preview.src = url;
+    preview.style.display='block';
+    cropBtn.style.display='none';
+    recropBtn.style.display='block';
+  },'image/jpeg',0.95);
+}
+
+function enableRecrop(){
+  if(!originalFile) return;
+  startCropper(originalFile);
+}
+
+async function checkNews(){
+  const fd = new FormData();
+  fd.append('news_text', textArea.value);
+  if(croppedFile) fd.append('image', croppedFile);
+  else if(imageInput.files[0]) fd.append('image', imageInput.files[0]);
+  else if(cameraInput.files[0]) fd.append('image', cameraInput.files[0]);
+
+  if(!textArea.value &&!imageInput.files[0] &&!cameraInput.files[0] &&!croppedFile){
+    alert('Type text or select Gallery/Camera first!');
+    return;
+  }
+
+  resultDiv.style.display='block';
+  resultDiv.className='result';
+  resultDiv.innerHTML='Checking... ⏳ Please wait';
+
+  try{
+    const res = await fetch('/check',{method:'POST',body:fd});
+    const d = await res.json();
+    if(d.status==='error'){resultDiv.className='result fake'; resultDiv.innerHTML=d.message; return;}
+
+    if(d.extracted_text && (imageInput.files[0]||cameraInput.files[0]||croppedFile)){
+      extractedBox.style.display='block';
+      extractedBox.innerText = 'Read from image: ' + d.extracted_text;
+    } else {
+      extractedBox.style.display='none';
+    }
+
+    if(d.label==='FAKE'){
+      resultDiv.className='result fake';
+      resultDiv.innerHTML=`<h2 style="margin:0">❌ FAKE NEWS</h2><p><b>Confidence: ${d.confidence}%</b><br><small>${d.reason}</small></p>`;
+    } else {
+      resultDiv.className='result real';
+      resultDiv.innerHTML=`<h2 style="margin:0">✅ REAL NEWS</h2><p><b>Confidence: ${d.confidence}%</b><br><small>${d.reason}</small></p>`;
+    }
+  }catch(err){
+    resultDiv.className='result fake';
+    resultDiv.innerHTML='Server error. Try again.';
+  }
+}
+</script>
+</body>
+</html>
