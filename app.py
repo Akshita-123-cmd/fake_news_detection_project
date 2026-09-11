@@ -1,43 +1,36 @@
-import os
-import shutil
 from flask import Flask, render_template, request, jsonify
 from PIL import Image
 import pytesseract
-
-# ========== FIX FOR BOTH LAPTOP + RENDER ==========
-# This auto-finds tesseract on Windows and Linux
-tess_path = shutil.which("tesseract")
-if not tess_path:
-    # Check common install locations
-    for p in [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-        "/usr/bin/tesseract",
-        "/usr/local/bin/tesseract"
-    ]:
-        if os.path.exists(p):
-            tess_path = p
-            break
-
-if tess_path:
-    pytesseract.pytesseract.tesseract_cmd = tess_path
-    print(f"✅ Tesseract READY: {tess_path}")
-else:
-    print("❌ Tesseract NOT FOUND! Install it on Windows from UB Mannheim")
-# =================================================
-
-# Try to load your ML model
-try:
-    import joblib
-    model = joblib.load('model.pkl')
-    vectorizer = joblib.load('vectorizer.pkl')
-    print("✅ Model loaded")
-except Exception as e:
-    print(f"⚠️ Model not loaded: {e}")
-    model = None
-    vectorizer = None
+import os
+import pickle
 
 app = Flask(__name__)
+
+# --- Load Model and Vectorizer ---
+model = None
+vectorizer = None
+
+try:
+    if os.path.exists('model.pkl'):
+        with open('model.pkl', 'rb') as f:
+            model = pickle.load(f)
+    if os.path.exists('vectorizer.pkl'):
+        with open('vectorizer.pkl', 'rb') as f:
+            vectorizer = pickle.load(f)
+    print(f"Model loaded: {model is not None}, Vectorizer loaded: {vectorizer is not None}")
+except Exception as e:
+    print(f"Model load error: {e}")
+
+# --- Tesseract Path Setup (Works on both Windows + Render Linux) ---
+# On Render Linux, tesseract is at /usr/bin/tesseract (from apt.txt)
+# On Windows, set it manually if needed
+if os.name == 'nt': # Windows
+    # Change this path if your tesseract is installed elsewhere
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else: # Linux / Render
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+print(f"Tesseract cmd: {pytesseract.pytesseract.tesseract_cmd}")
 
 @app.route('/')
 def home():
@@ -46,30 +39,51 @@ def home():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # Check if image uploaded
+        text = ""
+
+        # --- Check if image uploaded - FIXED to accept 'file' AND 'image' ---
+        file = None
         if 'file' in request.files and request.files['file'].filename!= '':
             file = request.files['file']
-            img = Image.open(file.stream)
+        elif 'image' in request.files and request.files['image'].filename!= '':
+            file = request.files['image']
 
-            # OCR - Extract text from image
+        if file:
             try:
-                text = pytesseract.image_to_string(img)
-            except pytesseract.TesseractNotFoundError:
-                return jsonify({
-                    'error': 'Tesseract is not installed or not in PATH. On Windows, install from https://github.com/UB-Mannheim/tesseract/wiki'
-                }), 500
+                img = Image.open(file.stream)
 
-            if not text.strip():
-                return jsonify({'error': 'No text found in image! Try clearer image.'}), 400
+                # OCR - Extract text from image
+                try:
+                    text = pytesseract.image_to_string(img)
+                except pytesseract.TesseractNotFoundError:
+                    return jsonify({
+                        'error': 'Tesseract is not installed or not in PATH. On Windows, install from https://github.com/UB-Mannheim/tesseract/wiki - On Render, add tesseract-ocr to apt.txt'
+                    }), 500
+
+                if not text.strip():
+                    return jsonify({'error': 'No text found in image! Try clearer image.'}), 400
+
+            except Exception as e:
+                return jsonify({'error': f'Image processing error: {str(e)}'}), 400
 
         else:
-            # Text input
-            text = request.form.get('news', '') or request.json.get('news', '') if request.json else ''
+            # --- Text input - FIXED 415 ERROR ---
+            # Safe way: check form first, then JSON only if it's actually JSON
+            text = request.form.get('news', '').strip()
 
-        if not text or not text.strip():
-            return jsonify({'error': 'Please enter text or upload image'}), 400
+            if not text:
+                text = request.form.get('text', '').strip()
 
-        # Prediction
+            # Only try to parse JSON if Content-Type is application/json
+            if not text and request.is_json:
+                json_data = request.get_json(silent=True)
+                if json_data:
+                    text = json_data.get('news', '').strip() or json_data.get('text', '').strip() or ''
+
+            if not text or not text.strip():
+                return jsonify({'error': 'Please enter text or upload image'}), 400
+
+        # --- Prediction ---
         if model and vectorizer:
             vec = vectorizer.transform([text])
             pred = model.predict(vec)[0]
@@ -87,7 +101,7 @@ def predict():
         })
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Predict error: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
