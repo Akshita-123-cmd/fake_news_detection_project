@@ -1,134 +1,93 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <meta charset="UTF-8">
-
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fake News Detector</title>
-
-    <link rel="stylesheet"
-          href="{{ url_for('static', filename='style.css') }}">
-
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-
-
 <body>
-
     <div class="container">
-
-        <div class="header">
-
-            <h1>📰 Fake News Detector</h1>
-
-            <p>
-                AI & Machine Learning Based News Verification
-            </p>
-
-        </div>
-
-
         <div class="card">
-
             <h2>Check Your News</h2>
+            <form action="/predict" method="POST" enctype="multipart/form-data" id="mainForm">
+                <input type="file" name="news_image" accept="image/*" id="fileInput" style="margin-bottom:10px; width:100%;" onchange="handleFile(this.files[0])">
 
-            <form action="/predict" method="POST" enctype="multipart/form-data">
-                <input type="file" name="news_image" accept="image/*" id="fileInput" style="margin-bottom:5px;" onchange="document.getElementBtId('file-name').innerText=this.files[0].name">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <button type="button" onclick="document.getElementById('cameraInput').click()" style="padding:8px 15px; background:#4CAF50; color:white; border:none; border-radius:5px; cursor:pointer; width:100%"> 📷open Camera</button>
+                    <button type="button" onclick="openCamera()" style="padding:8px 15px; background:#4CAF50; color:white; border:none; border-radius:5px; cursor:pointer; flex:1;">📷 Open Camera</button>
+                    <button type="button" onclick="document.getElementById('cameraInput').click()" style="padding:8px 15px; background:#2196F3; color:white; border:none; border-radius:5px; cursor:pointer; flex:1;">🖼️ Gallery</button>
+                </div>
+                <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="handleFile(this.files[0])">
 
-                </div>"
-                <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="document.getElementById('file-name').innerText='📷Photo Captured! Ready to Detect'">
-                <p id="file-name" style="font-size:12px; color:#666; text-align:center;"></p>
+                <div id="cameraBox" style="display:none; margin-bottom:10px;">
+                    <video id="video" autoplay style="width:100%; border-radius:10px;"></video>
+                    <button type="button" onclick="takePhoto()" style="margin-top:5px; width:100%; padding:10px; background:#FF5722; color:white; border:none; border-radius:5px;">📸 Capture Photo</button>
+                    <button type="button" onclick="closeCamera()" style="margin-top:5px; width:100%; padding:5px; background:#999; color:white; border:none; border-radius:5px;">Close</button>
+                </div>
+
+                <div id="cropBox" style="display:none; margin-bottom:10px;">
+                    <p style="font-size:13px; font-weight:bold;">✂️ Crop the news area (drag corners):</p>
+                    <div><img id="cropImage" style="max-width:100%;"></div>
+                    <div style="display:flex; gap:10px; margin-top:10px;">
+                        <button type="button" onclick="doCrop()" style="flex:1; padding:10px; background:#4CAF50; color:white; border:none; border-radius:5px;">✅ Crop & Use</button>
+                        <button type="button" onclick="cancelCrop()" style="flex:1; padding:10px; background:#999; color:white; border:none; border-radius:5px;">Retake</button>
+                    </div>
+                </div>
+
+                <p id="file-name" style="font-size:12px; color:green; text-align:center; font-weight:bold;"></p>
                 <p style="text-align:center;">OR paste text below</p>
-
-    
-                <textarea
-                    name="news"
-                    placeholder="Enter news article or headline here..."
-                    >{{ news if news else '' }}</textarea>
-
-
-                <button type="submit">
-                    🔍 Detect News
-                </button>
-
+                <textarea name="news" placeholder="Enter news article or headline here...">{{ news if news else '' }}</textarea>
+                <button type="submit" style="width:100%; padding:12px; background:#000; color:white; border:none; border-radius:5px; margin-top:10px;">Detect News</button>
             </form>
-
-
-            {% if prediction %}
-
-            <div class="result">
-
-                <h2>Detection Result</h2>
-
-
-                {% if prediction == "FAKE" %}
-
-                    <div class="fake">
-                        ❌ FAKE NEWS
-                    </div>
-
-                {% else %}
-
-                    <div class="real">
-                        ✅ REAL NEWS
-                    </div>
-
-                {% endif %}
-
-
-               
-
-            {% endif %}
-
         </div>
-
-
-        <div class="info">
-
-            <h3>How does it work?</h3>
-
-            <div class="steps">
-
-                <div>
-                    <b>1️⃣</b>
-                    <p>Enter news</p>
-                </div>
-
-                <div>
-                    <b>2️⃣</b>
-                    <p>TF-IDF converts text</p>
-                </div>
-
-                <div>
-                    <b>3️⃣</b>
-                    <p>ML model analyzes it</p>
-                </div>
-
-                <div>
-                    <b>4️⃣</b>
-                    <p>Get prediction</p>
-                </div>
-
-            </div>
-
-        </div>
-
-
-        <footer>
-
-            <p>
-                Fake News Detection using AI & ML
-            </p>
-
-        </footer>
-
     </div>
 
+<script>
+let stream, cropper;
+function openCamera(){
+  document.getElementById('cameraBox').style.display='block';
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(s=>{stream=s; document.getElementById('video').srcObject=s;}).catch(()=>alert("Camera permission denied! Use Gallery instead."));
+}
+function closeCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  document.getElementById('cameraBox').style.display='none';
+}
+function takePhoto(){
+  let video=document.getElementById('video');
+  let canvas=document.createElement('canvas');
+  canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0);
+  closeCamera();
+  loadToCropper(canvas.toDataURL('image/jpeg'));
+}
+function handleFile(file){
+  if(!file) return;
+  let reader=new FileReader();
+  reader.onload=e=>loadToCropper(e.target.result);
+  reader.readAsDataURL(file);
+}
+function loadToCropper(src){
+  document.getElementById('cropBox').style.display='block';
+  let img=document.getElementById('cropImage');
+  img.src=src;
+  if(cropper) cropper.destroy();
+  setTimeout(()=>{ cropper=new Cropper(img,{viewMode:1, autoCropArea:0.8}); },100);
+}
+function doCrop(){
+  cropper.getCroppedCanvas().toBlob(blob=>{
+    let file=new File([blob],"cropped.jpg",{type:"image/jpeg"});
+    let dt=new DataTransfer(); dt.items.add(file);
+    document.getElementById('fileInput').files=dt.files;
+    document.getElementById('file-name').innerText="✅ Cropped image ready! Click Detect";
+    document.getElementById('cropBox').style.display='none';
+  },'image/jpeg');
+}
+function cancelCrop(){
+  document.getElementById('cropBox').style.display='none';
+  if(cropper) cropper.destroy();
+}
+</script>
 </body>
-
 </html>
