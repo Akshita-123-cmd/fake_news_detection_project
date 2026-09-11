@@ -1,6 +1,7 @@
 import os
 import pickle
-from flask import Flask, request, render_template, jsonify
+import shutil
+from flask import Flask, request, render_template
 from PIL import Image
 import pytesseract
 
@@ -24,12 +25,23 @@ try:
 except Exception as e:
     print(f"Vectorizer load failed: {e}")
 
-# For Render Linux path
+# --- FIXED: Auto-find tesseract path (works on Render + Local) ---
 try:
-    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-    print(f"Tesseract cmd: {pytesseract.pytesseract.tesseract_cmd}")
-except:
-    pass
+    tess_path = shutil.which("tesseract")
+    if tess_path:
+        pytesseract.pytesseract.tesseract_cmd = tess_path
+        print(f"Tesseract found at: {tess_path}")
+    else:
+        # Try common Render paths
+        for p in ["/usr/bin/tesseract", "/usr/local/bin/tesseract"]:
+            if os.path.exists(p):
+                pytesseract.pytesseract.tesseract_cmd = p
+                print(f"Tesseract found at: {p}")
+                break
+        else:
+            print("Tesseract not found in PATH, will try default")
+except Exception as e:
+    print(f"Tesseract path setup error: {e}")
 
 def clean_text(text):
     if not text:
@@ -45,53 +57,51 @@ def predict():
     try:
         text = ""
 
-        # 1. Get text from form or JSON
+        # 1. Get text from form
         if request.form:
             text = request.form.get('news_text', '') or request.form.get('text', '') or ""
 
-        # 2. Get image - FIXED: Check news_image FIRST
+        # 2. Get image - Check news_image FIRST (your HTML sends this)
         file_obj = None
-        # Check all possible field names, news_image is priority
-        for field_name in ['news_image', 'file', 'image', 'news_image_file']:
+        for field_name in ['news_image', 'file', 'image']:
             if field_name in request.files:
                 f = request.files[field_name]
                 if f and f.filename!= '':
                     file_obj = f
-                    print(f"Found file in field: {field_name}, filename: {f.filename}")
+                    print(f"Found file in: {field_name} -> {f.filename}")
                     break
 
         # 3. OCR if image found
         if file_obj:
             try:
                 img = Image.open(file_obj.stream)
-                # Convert to RGB if needed
                 if img.mode!= 'RGB':
                     img = img.convert('RGB')
                 ocr_text = pytesseract.image_to_string(img)
-                print(f"OCR extracted: {ocr_text[:100]}")
+                print(f"OCR Text: {ocr_text[:150]}")
                 if ocr_text.strip():
                     text = ocr_text + " " + text
-            except pytesseract.TesseractNotFoundError:
-                return render_template('index.html',
-                    prediction="Tesseract not installed on server",
-                    confidence="Check apt.txt has tesseract-ocr")
             except Exception as e:
                 print(f"OCR Error: {e}")
-                # Continue with text if OCR fails
+                # Don't fail, try to continue - if text was also typed
+                if not text.strip():
+                    return render_template('index.html',
+                        prediction="Could not read text from image",
+                        confidence=f"OCR Error: {str(e)[:100]}. Try clearer image or type text.")
 
         text = text.strip()
-        print(f"Final text for prediction: {text[:100]}")
+        print(f"Final text: {text[:150]}")
 
         if not text:
             return render_template('index.html',
-                prediction="Please enter text or upload an image with text",
+                prediction="Please enter text or upload an image with clear text",
                 confidence="No text found")
 
         # 4. Predict
         if not model or not vectorizer:
             return render_template('index.html',
                 prediction="Model not loaded",
-                confidence="Check model.pkl and vectorizer.pkl")
+                confidence="Check model.pkl and vectorizer.pkl exist")
 
         cleaned = clean_text(text)
         vector = vectorizer.transform([cleaned])
@@ -100,10 +110,10 @@ def predict():
         try:
             proba = model.predict_proba(vector).max() * 100
         except:
-            proba = 90.0
+            proba = 85.0
 
-        # Handle different label formats
-        if str(pred) == '1' or str(pred).lower() == 'real' or pred == 1 or pred == True:
+        # Handle all label types
+        if str(pred) == '1' or str(pred).lower() in ['real', 'true'] or pred == 1:
             result = "REAL NEWS ✅"
         else:
             result = "FAKE NEWS ❌"
@@ -118,9 +128,9 @@ def predict():
         import traceback
         traceback.print_exc()
         return render_template('index.html',
-            prediction=f"Server Error: {str(e)}",
-            confidence="")
+            prediction=f"Error: {str(e)}",
+            confidence="Check Render logs")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
