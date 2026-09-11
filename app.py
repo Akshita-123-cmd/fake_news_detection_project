@@ -86,4 +86,8 @@ def check():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
+<<<<<<< HEAD
     app.run(host='0.0.0.0', port=port)
+=======
+    app.run(host='0.0.0.0', port=port)
+>>>>>>> 94ba662df710aba50b535f66fa48fc9fc0df25f4
