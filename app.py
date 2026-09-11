@@ -1,8 +1,8 @@
-from flask import Flask, render_template, request, jsonify
-from PIL import Image
-import pytesseract
 import os
 import pickle
+from flask import Flask, request, render_template, jsonify
+from PIL import Image
+import pytesseract
 
 app = Flask(__name__)
 
@@ -11,26 +11,30 @@ model = None
 vectorizer = None
 
 try:
-    if os.path.exists('model.pkl'):
-        with open('model.pkl', 'rb') as f:
-            model = pickle.load(f)
-    if os.path.exists('vectorizer.pkl'):
-        with open('vectorizer.pkl', 'rb') as f:
-            vectorizer = pickle.load(f)
-    print(f"Model loaded: {model is not None}, Vectorizer loaded: {vectorizer is not None}")
+    with open('model.pkl', 'rb') as f:
+        model = pickle.load(f)
+    print("Model loaded: True")
 except Exception as e:
-    print(f"Model load error: {e}")
+    print(f"Model load failed: {e}")
 
-# --- Tesseract Path Setup (Works on both Windows + Render Linux) ---
-# On Render Linux, tesseract is at /usr/bin/tesseract (from apt.txt)
-# On Windows, set it manually if needed
-if os.name == 'nt': # Windows
-    # Change this path if your tesseract is installed elsewhere
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else: # Linux / Render
-    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+try:
+    with open('vectorizer.pkl', 'rb') as f:
+        vectorizer = pickle.load(f)
+    print("Vectorizer loaded: True")
+except Exception as e:
+    print(f"Vectorizer load failed: {e}")
 
-print(f"Tesseract cmd: {pytesseract.pytesseract.tesseract_cmd}")
+# For Render Linux path
+try:
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+    print(f"Tesseract cmd: {pytesseract.pytesseract.tesseract_cmd}")
+except:
+    pass
+
+def clean_text(text):
+    if not text:
+        return ""
+    return text.lower().strip()
 
 @app.route('/')
 def home():
@@ -41,73 +45,81 @@ def predict():
     try:
         text = ""
 
-        # --- Check if image uploaded - FIXED to accept 'file' AND 'image' ---
-        # --- FIXED to accept news_image, file, image ---
-        # --- FIXED to accept news_image, file, image ---
-        file = None
-        if 'news_image' in request.files and request.files['news_image'].filename != '':
-            file = request.files['news_image']
-        elif 'file' in request.files and request.files['file'].filename != '':
-            file = request.files['file']
-        elif 'image' in request.files and request.files['image'].filename != '':
-            file = request.files['image']
+        # 1. Get text from form or JSON
+        if request.form:
+            text = request.form.get('news_text', '') or request.form.get('text', '') or ""
 
+        # 2. Get image - FIXED: Check news_image FIRST
+        file_obj = None
+        # Check all possible field names, news_image is priority
+        for field_name in ['news_image', 'file', 'image', 'news_image_file']:
+            if field_name in request.files:
+                f = request.files[field_name]
+                if f and f.filename!= '':
+                    file_obj = f
+                    print(f"Found file in field: {field_name}, filename: {f.filename}")
+                    break
 
-        if file:
+        # 3. OCR if image found
+        if file_obj:
             try:
-                img = Image.open(file.stream)
-
-                # OCR - Extract text from image
-                try:
-                    text = pytesseract.image_to_string(img)
-                except pytesseract.TesseractNotFoundError:
-                    return jsonify({
-                        'error': 'Tesseract is not installed or not in PATH. On Windows, install from https://github.com/UB-Mannheim/tesseract/wiki - On Render, add tesseract-ocr to apt.txt'
-                    }), 500
-
-                if not text.strip():
-                    return jsonify({'error': 'No text found in image! Try clearer image.'}), 400
-
+                img = Image.open(file_obj.stream)
+                # Convert to RGB if needed
+                if img.mode!= 'RGB':
+                    img = img.convert('RGB')
+                ocr_text = pytesseract.image_to_string(img)
+                print(f"OCR extracted: {ocr_text[:100]}")
+                if ocr_text.strip():
+                    text = ocr_text + " " + text
+            except pytesseract.TesseractNotFoundError:
+                return render_template('index.html',
+                    prediction="Tesseract not installed on server",
+                    confidence="Check apt.txt has tesseract-ocr")
             except Exception as e:
-                return jsonify({'error': f'Image processing error: {str(e)}'}), 400
+                print(f"OCR Error: {e}")
+                # Continue with text if OCR fails
 
+        text = text.strip()
+        print(f"Final text for prediction: {text[:100]}")
+
+        if not text:
+            return render_template('index.html',
+                prediction="Please enter text or upload an image with text",
+                confidence="No text found")
+
+        # 4. Predict
+        if not model or not vectorizer:
+            return render_template('index.html',
+                prediction="Model not loaded",
+                confidence="Check model.pkl and vectorizer.pkl")
+
+        cleaned = clean_text(text)
+        vector = vectorizer.transform([cleaned])
+        pred = model.predict(vector)[0]
+
+        try:
+            proba = model.predict_proba(vector).max() * 100
+        except:
+            proba = 90.0
+
+        # Handle different label formats
+        if str(pred) == '1' or str(pred).lower() == 'real' or pred == 1 or pred == True:
+            result = "REAL NEWS ✅"
         else:
-            # --- Text input - FIXED 415 ERROR ---
-            # Safe way: check form first, then JSON only if it's actually JSON
-            text = request.form.get('news', '').strip()
+            result = "FAKE NEWS ❌"
 
-            if not text:
-                text = request.form.get('text', '').strip()
-
-            # Only try to parse JSON if Content-Type is application/json
-            if not text and request.is_json:
-                json_data = request.get_json(silent=True)
-                if json_data:
-                    text = json_data.get('news', '').strip() or json_data.get('text', '').strip() or ''
-
-            if not text or not text.strip():
-                return jsonify({'error': 'Please enter text or upload image'}), 400
-
-        # --- Prediction ---
-        if model and vectorizer:
-            vec = vectorizer.transform([text])
-            pred = model.predict(vec)[0]
-            result = "FAKE" if pred == 1 else "REAL"
-            confidence = model.predict_proba(vec).max() * 100 if hasattr(model, 'predict_proba') else 0
-        else:
-            # Dummy if model not found
-            result = "REAL" if len(text) > 50 else "FAKE"
-            confidence = 85
-
-        return jsonify({
-            'text_extracted': text[:500],
-            'prediction': result,
-            'confidence': f"{confidence:.2f}%"
-        })
+        return render_template('index.html',
+            prediction=result,
+            confidence=f"Confidence: {proba:.1f}%",
+            input_text=text[:400])
 
     except Exception as e:
         print(f"Predict error: {e}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return render_template('index.html',
+            prediction=f"Server Error: {str(e)}",
+            confidence="")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
