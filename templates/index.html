@@ -18,12 +18,12 @@
     <div class="card">
         <h2 style="text-align:center;">🔍 Fake News Detector</h2>
         <form action="/predict" method="POST" enctype="multipart/form-data">
-            <input type="file" name="news_image" accept="image/*" id="fileInput" style="width:100%; margin-bottom:10px;" onchange="handleFile(this.files[0])">
+            <input type="file" name="news_image" accept="image/*" id="fileInput" style="width:100%; margin-bottom:10px;">
             <div style="display:flex; gap:10px; margin-bottom:10px;">
-                <button type="button" onclick="openCamera()" style="flex:1; padding:10px; background:#4CAF50; color:white; border:none; border-radius:8px;">📷 Camera</button>
-                <button type="button" onclick="document.getElementById('cameraInput').click()" style="flex:1; padding:10px; background:#2196F3; color:white; border:none; border-radius:8px;">🖼️ Gallery</button>
-            </div>
-            <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="handleFile(this.files[0])">
+            <button type="button" onclick="document.getElementById('fileInput').click()" style="flex:1; padding:10px; background:#4CAF50; color:white; border:none; border-radius:5px;">📁 Gallery</button>
+            <button type="button" onclick="openCamera()" style="flex:1; padding:10px; background:#2196F3; color:white; border:none; border-radius:5px;">📷 Camera</button>
+    </div>
+            <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none" onchange="handleCameraFile(this)">
 
             <div id="cameraBox" style="display:none; margin-bottom:10px; text-align:center;">
                 <video id="video" autoplay playsinline style="width:100%; border-radius:10px; background:black;"></video>
